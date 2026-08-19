@@ -1,0 +1,44 @@
+# dependencies
+node_modules/
+
+# Foundry build artifacts
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# Generated per-deployment — recreated by `npm run deploy`
+contracts/deployments/
+web/src/generated/
+
+# Next.js
+.next/
+out/
+build/
+.vercel/
+next-env.d.ts
+
+# secrets — never commit a private key or RPC key
+.env
+.env.*
+!.env.example
+
+# editor tooling notes that `next dev` writes into the app directory
+web/*.md
+
+# tooling scratch output
+.playwright-mcp/
+*.tsbuildinfo
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# NOTE: contracts/lib/ is committed on purpose so `forge test` works
+# straight after a clone, with no `forge install` step.

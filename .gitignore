@@ -1,0 +1,19 @@
+# Browser-automation scratch output (snapshots, screenshots, console logs).
+# Regenerated on demand — nothing here is source.
+.playwright-mcp/
+
+# dependencies / build output
+node_modules/
+.next/
+out/
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

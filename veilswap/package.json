@@ -1,0 +1,17 @@
+{
+  "name": "veilswap",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The same trade run twice: once exposed to the public mempool, once sealed behind a commit-reveal.",
+  "scripts": {
+    "chain": "anvil --block-time 2",
+    "test": "cd contracts && forge test -vv",
+    "deploy": "cd contracts && forge script script/Deploy.s.sol:Deploy --rpc-url http://127.0.0.1:8545 --broadcast && cd .. && node scripts/sync-abi.mjs",
+    "web": "npm run dev --prefix web",
+    "setup": "npm install --prefix web",
+    "bot": "node scripts/searcher-bot.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.55.19"
+  }
+}
