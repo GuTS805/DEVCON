@@ -18,6 +18,11 @@ COPY veilswap/chain/start.sh ./start.sh
 USER root
 RUN chmod +x ./start.sh
 
+# Deploy.s.sol writes its address manifest to contracts/deployments/, which is
+# gitignored and therefore absent from the build context. vm.writeJson reverts on
+# a missing directory, which fails the whole script before anything broadcasts.
+RUN mkdir -p contracts/deployments
+
 # Compile here rather than on boot. This downloads solc while the image is being
 # built, where a failure is visible in the build log, instead of at start-up
 # where it would just look like a crash.
