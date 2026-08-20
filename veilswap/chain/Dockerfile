@@ -18,6 +18,11 @@ COPY veilswap/chain/start.sh ./start.sh
 USER root
 RUN chmod +x ./start.sh
 
+# Compile here rather than on boot. This downloads solc while the image is being
+# built, where a failure is visible in the build log, instead of at start-up
+# where it would just look like a crash.
+RUN cd contracts && forge build
+
 # The base image sets its own entrypoint; clear it so the command below is what
 # actually runs, and invoke sh explicitly rather than relying on the shebang.
 ENTRYPOINT []

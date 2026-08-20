@@ -31,8 +31,14 @@ fi
 
 echo "deploying contracts"
 cd contracts
-forge script script/Deploy.s.sol:Deploy --rpc-url "${RPC}" --broadcast
+# Deliberately not fatal. If the deploy fails, keeping Anvil up leaves the logs
+# readable and the RPC pokeable, which beats a crash loop that scrolls the
+# reason away.
+if forge script script/Deploy.s.sol:Deploy --rpc-url "${RPC}" --broadcast; then
+  echo "chain ready on ${PORT}"
+else
+  echo "DEPLOY FAILED — anvil is still running, but the contracts are not there" >&2
+fi
 cd ..
 
-echo "chain ready on ${PORT}"
 wait "${ANVIL_PID}"
