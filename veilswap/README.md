@@ -130,6 +130,40 @@ pool has drifted more than 1% since. Moving the price no longer changes the matc
 drift bound stops the leftover swap filling at a rigged rate. The rigged settle now
 reverts, while `test_smallDriftStillSettles` keeps ordinary movement working.
 
+## What it costs
+
+Neither defence is free, and the batch — the one that hides the most — is the dearest.
+From `test/GasCost.t.sol`, measured rather than estimated:
+
+| | gas | vs a plain swap |
+|---|---|---|
+| Straight at the pool | 57,454 | — |
+| VeilSwap (commit 50,095 + reveal 58,300) | 108,395 | 1.9× |
+| Batch, per trader (commit + reveal + ⅓ of settlement) | 206,470 | 3.6× |
+
+Commit-reveal is two transactions where a swap was one, so roughly double is the floor.
+The batch's reveal is the expensive step: it writes the order to storage instead of
+executing it, which is exactly what lets the settlement net orders off against each
+other later. Settlement itself is 76,447 for three orders and gets cheaper per trader as
+a batch fills.
+
+## Checked on random order books
+
+The batch arithmetic is the newest code here and the easiest place to be quietly wrong,
+so `test/BatchInvariants.t.sol` fuzzes it — 256 runs per property, on random sizes and
+directions:
+
+- the router ends up holding nothing and creating nothing, beyond rounding dust
+- everyone on the same side of a batch clears at one price
+- the pool only ever sees the imbalance between the two sides, never the flow itself
+- a single-sided batch, with nothing to net, reaches the pool in full
+
+The third one is worth reporting honestly: the first version asserted the pool saw no
+more than the *buy* side, and the fuzzer broke it in twelve runs. When the sell side is
+larger the pool absorbs the excess and pays out WETH against it, so the imbalance — not
+either side — is what actually bounds the exposure. The claim was too loose before the
+fuzzer tightened it.
+
 ## What this does not fix
 
 Worth saying out loud, because a demo that overclaims is worse than one that doesn't:
@@ -240,6 +274,8 @@ contracts/
   test/Sandwich.t.sol     proves the attack, the defence, and the front-run of the reveal
   test/Batch.t.sol        proves offsetting flow never reaches the pool
   test/BatchManipulation.t.sol  attacks settlement itself, and shows the anchor holding
+  test/BatchInvariants.t.sol    fuzzes the batch arithmetic on random order books
+  test/GasCost.t.sol            what each route costs, measured
   script/Deploy.s.sol     seeds 100 WETH / 1,000,000 MEME and funds the actors
 web/
   src/lib/demo.ts         drives each run against the chain, streams beats to the UI
