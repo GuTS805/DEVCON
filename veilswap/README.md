@@ -166,12 +166,15 @@ chain behind a URL, not a different chain. Nothing on it holds value; the keys a
 published test accounts and the state is wiped on every restart.
 
 **The chain.** `chain/Dockerfile` boots Anvil and deploys the contracts into it on start.
-Point any Docker host at it with the repo's `veilswap` directory as the root:
+Its paths are relative to the repository root, and `railway.json` at the root already
+points at it, so a Docker host needs no configuration beyond connecting the repo. Leave
+the root directory unset — pointing it at `veilswap/` hides the root `railway.json` and
+the host falls back to guessing.
 
 | setting | value |
 |---|---|
-| root directory | `veilswap` |
-| dockerfile | `chain/Dockerfile` (already set in `railway.json`) |
+| root directory | leave empty |
+| dockerfile | `veilswap/chain/Dockerfile` (already set in `railway.json`) |
 | port | taken from `$PORT`, falls back to 8545 |
 
 **The frontend.** Deploy `veilswap/web` to any Next.js host and set one variable:

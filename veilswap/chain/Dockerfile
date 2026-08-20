@@ -10,8 +10,10 @@ FROM ghcr.io/foundry-rs/foundry:latest
 
 WORKDIR /app
 
-COPY contracts ./contracts
-COPY chain/start.sh ./start.sh
+# Paths are relative to the repository root, which is the build context, so the
+# host needs no root-directory setting of its own.
+COPY veilswap/contracts ./contracts
+COPY veilswap/chain/start.sh ./start.sh
 
 USER root
 RUN chmod +x ./start.sh
