@@ -2,7 +2,11 @@ import { createPublicClient, createWalletClient, createTestClient, http } from "
 import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
 
-const RPC = process.env.NEXT_PUBLIC_RPC_URL ?? "http://127.0.0.1:8545";
+export const RPC = process.env.NEXT_PUBLIC_RPC_URL ?? "http://127.0.0.1:8545";
+/// True when the demo is talking to a chain someone else is hosting, which changes
+/// what we can sensibly tell the visitor if it is unreachable.
+export const RPC_IS_LOCAL = /127\.0\.0\.1|localhost/.test(RPC);
+
 const transport = http(RPC);
 
 /// Anvil's deterministic accounts. Account 0 seeded the pool in Deploy.s.sol.

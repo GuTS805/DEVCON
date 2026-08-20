@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatEther } from "viem";
 import { addresses, ammAbi } from "@/generated/contracts";
-import { publicClient } from "@/lib/chain";
+import { publicClient, RPC, RPC_IS_LOCAL } from "@/lib/chain";
 import {
   fmt,
   initDemo,
@@ -141,12 +141,18 @@ export default function Page() {
         </button>
       </div>
 
-      {offline && (
-        <p className="banner">
-          No chain at 127.0.0.1:8545. Start it with <code>anvil --block-time 2</code>, then deploy with{" "}
-          <code>npm run deploy</code> from the project root.
-        </p>
-      )}
+      {offline &&
+        (RPC_IS_LOCAL ? (
+          <p className="banner">
+            No chain at {new URL(RPC).host}. Start it with <code>anvil --block-time 2</code>, then deploy
+            with <code>npm run deploy</code> from the project root.
+          </p>
+        ) : (
+          <p className="banner">
+            The demo chain at {new URL(RPC).host} is not answering. It is a disposable Anvil node and may
+            be restarting — give it a moment and reload.
+          </p>
+        ))}
 
       <section className="track">
         <div className="lane lane-exposed">

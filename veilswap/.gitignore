@@ -8,7 +8,9 @@ contracts/broadcast/
 
 # Generated per-deployment — recreated by `npm run deploy`
 contracts/deployments/
-web/src/generated/
+
+# web/src/generated/ is committed on purpose: the hosted build has no Foundry to
+# regenerate it from, and a fresh Anvil always deploys to the same addresses.
 
 # Next.js
 .next/
