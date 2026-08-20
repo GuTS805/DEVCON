@@ -690,6 +690,139 @@ body {
   color: var(--sealed);
 }
 
+/* ---------- adversary ---------- */
+
+.adversary {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: var(--gutter);
+  row-gap: 1.75rem;
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line-hi);
+}
+
+.adversary-label {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.adversary-lede {
+  grid-column: 2 / 4;
+  grid-row: 1;
+  margin: 0;
+  color: var(--dim);
+}
+
+.adversary-lede code,
+.finding-body code {
+  font-family: var(--font-data);
+  font-size: 0.82em;
+  color: var(--text);
+}
+
+.findings {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--gutter);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding {
+  min-width: 0;
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--exposed);
+}
+
+.finding-title {
+  margin: 0.2rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.finding-body {
+  margin: 0.4rem 0 0;
+  font-size: 0.82rem;
+  color: var(--dim);
+}
+
+/* What it cost before the fix, and what closed it. */
+.finding-cost {
+  margin: 0.7rem 0 0;
+  font-family: var(--font-data);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--exposed);
+}
+
+.finding-fix {
+  margin: 0.5rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  color: var(--sealed);
+}
+
+.finding-test {
+  margin: 0.5rem 0 0;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: var(--faint);
+  word-break: break-all;
+}
+
+.transcript {
+  grid-column: 2 / 4;
+  grid-row: 3;
+  margin: 0;
+}
+
+.transcript pre {
+  margin: 0.5rem 0 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--ink);
+  font-family: var(--font-data);
+  font-size: 0.7rem;
+  line-height: 1.85;
+  color: var(--dim);
+  overflow-x: auto;
+}
+
+.tr-line {
+  display: block;
+  white-space: pre;
+}
+
+.tr-tag {
+  display: inline-block;
+  width: 5.4rem;
+  color: var(--faint);
+}
+
+.tr-seen {
+  color: #6fb8d8;
+}
+
+.tr-target {
+  color: #d9a441;
+}
+
+.tr-frontrun {
+  color: var(--exposed);
+}
+
+.tr-loss {
+  color: var(--sealed);
+}
+
 /* ---------- footnote ---------- */
 
 .footnote {
@@ -731,9 +864,17 @@ body {
   .act-label,
   .act-lede,
   .act-figure,
-  .feed {
+  .feed,
+  .adversary-label,
+  .adversary-lede,
+  .findings,
+  .transcript {
     grid-column: 1 / -1;
     grid-row: auto;
+  }
+
+  .findings {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .feed {

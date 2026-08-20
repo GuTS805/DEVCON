@@ -284,6 +284,8 @@ export default function Page() {
         )}
       </section>
 
+      <Adversary />
+
       <footer className="footnote">
         <p>
           The pool is a constant-product AMM seeded at 100 WETH / 1,000,000 MEME, and the sandwich
@@ -557,6 +559,92 @@ function BeatLine({ beat, open }: { beat: Beat; open: boolean }) {
 
       {beat.hash && <p className="beat-hash num">{beat.hash}</p>}
     </article>
+  );
+}
+
+/* ---------- adversary ---------- */
+
+/// Two defects a real searcher found in this project, and what closed them.
+/// Both numbers below came out of the bot, not out of an argument.
+const FINDINGS = [
+  {
+    n: "01",
+    title: "The reveal gave the order away",
+    body: (
+      <>
+        The commit is genuinely opaque — the bot logged it and moved on. But{" "}
+        <code>reveal()</code> has to spell the order out in calldata, and that transaction sits in the
+        mempool like any other. The bot read it and bracketed the reveal itself.
+      </>
+    ),
+    cost: "Bot took 0.6977 WETH",
+    fix: "Execution is now anchored to the price recorded at commit time, so shifting the pool enough to be worth attacking makes the reveal revert instead.",
+    test: "test_frontRunningTheRevealMakesItRevert",
+  },
+  {
+    n: "02",
+    title: "Settlement could be bought",
+    body: (
+      <>
+        <code>settleBatch</code> is permissionless and read the pool&rsquo;s live price to decide how
+        much of the batch matched internally. So whoever called it could move the pool and settle in
+        one transaction, choosing the rate their own order cleared at.
+      </>
+    ),
+    cost: "Settler took 2.965 WETH · honest buyer lost 30% of their fill",
+    fix: "The batch now matches at the price recorded when its first order was revealed, and refuses to settle if the pool has drifted more than 1% since.",
+    test: "test_settlerCannotBuyTheSettlementPrice",
+  },
+];
+
+/// Verbatim from a run against the fixed contracts.
+const TRANSCRIPT: [string, string][] = [
+  ["SEEN", "a sealed commit — hash only, no size or direction. Nothing to act on."],
+  ["TARGET", "veil reveal: 10 WETH in, min out 81818.18 (9090.90 MEME of slippage room)"],
+  ["FRONT-RUN", "buying with 5 WETH at 3600000024 wei gas"],
+  ["LOSS", "-0.000000000000000001 WETH — the attack did not pay"],
+];
+
+function Adversary() {
+  return (
+    <section className="adversary">
+      <div className="adversary-label">
+        <p className="eyebrow">The adversary</p>
+        <h2 className="act-title">We pointed a real searcher at it</h2>
+      </div>
+
+      <p className="adversary-lede">
+        <code>scripts/searcher-bot.mjs</code> is a separate process. It polls the pending pool, decodes
+        whatever it finds and decides for itself what is worth attacking — nothing about the demo is
+        scripted into it. Left on the unprotected path it takes 0.970654627539503385 WETH, the Session 1
+        figure to the last wei, arrived at on its own. It also broke two versions of this project.
+      </p>
+
+      <ol className="findings">
+        {FINDINGS.map((f) => (
+          <li className="finding" key={f.n}>
+            <p className="eyebrow">Finding {f.n}</p>
+            <h3 className="finding-title">{f.title}</h3>
+            <p className="finding-body">{f.body}</p>
+            <p className="finding-cost">{f.cost}</p>
+            <p className="finding-fix">{f.fix}</p>
+            <p className="finding-test num">{f.test}</p>
+          </li>
+        ))}
+      </ol>
+
+      <figure className="transcript">
+        <figcaption className="eyebrow">The bot, run against the fixed contracts</figcaption>
+        <pre>
+          {TRANSCRIPT.map(([tag, line]) => (
+            <span className="tr-line" key={tag}>
+              <span className={`tr-tag tr-${tag.toLowerCase().replace("-", "")}`}>{tag}</span>
+              {line}
+            </span>
+          ))}
+        </pre>
+      </figure>
+    </section>
   );
 }
 
