@@ -158,6 +158,38 @@ Then press **Run it exposed**, **Run it sealed**, and **Run it as a batch**. Eac
 rolls the chain back to the same pool state first, so every path is compared on identical
 reserves.
 
+### Running it hosted
+
+A public testnet cannot host this demo. It needs instant blocks, four funded signers and
+`evm_revert` to put the pool back between runs — so the hosted version is the same Anvil
+chain behind a URL, not a different chain. Nothing on it holds value; the keys are Anvil's
+published test accounts and the state is wiped on every restart.
+
+**The chain.** `chain/Dockerfile` boots Anvil and deploys the contracts into it on start.
+Point any Docker host at it with the repo's `veilswap` directory as the root:
+
+| setting | value |
+|---|---|
+| root directory | `veilswap` |
+| dockerfile | `chain/Dockerfile` (already set in `railway.json`) |
+| port | taken from `$PORT`, falls back to 8545 |
+
+**The frontend.** Deploy `veilswap/web` to any Next.js host and set one variable:
+
+```
+NEXT_PUBLIC_RPC_URL=https://your-chain-host.example.com
+```
+
+It has to be `https://` — a page served over HTTPS cannot call an HTTP endpoint, the
+browser blocks it as mixed content.
+
+Because a fresh Anvil always deploys to the same addresses,
+`web/src/generated/contracts.ts` is committed and needs no regeneration at build time.
+
+One caveat worth knowing: each run calls `evm_revert`, which rewinds the chain for
+*everyone* connected. Two people clicking at the same moment will interfere with each
+other. Pressing **Reset pool** puts it right.
+
 ### Turning the real searcher loose
 
 The UI scripts its own attacker so the comparison is reproducible. To watch an
