@@ -18,5 +18,8 @@ COPY veilswap/chain/start.sh ./start.sh
 USER root
 RUN chmod +x ./start.sh
 
+# The base image sets its own entrypoint; clear it so the command below is what
+# actually runs, and invoke sh explicitly rather than relying on the shebang.
+ENTRYPOINT []
 EXPOSE 8545
-CMD ["./start.sh"]
+CMD ["/bin/sh", "/app/start.sh"]
