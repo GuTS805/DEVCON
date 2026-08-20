@@ -29,7 +29,7 @@ contract Deploy is Script {
         MockERC20 meme = new MockERC20("Meme Token", "MEME");
         SimpleAMM amm = new SimpleAMM(weth, meme);
         VeilSwap veil = new VeilSwap(amm, 3, 50, 100);
-        BatchVeilSwap batch = new BatchVeilSwap(amm, 3, 50);
+        BatchVeilSwap batch = new BatchVeilSwap(amm, 3, 50, 100);
 
         weth.mint(deployer, POOL_WETH);
         meme.mint(deployer, POOL_MEME);

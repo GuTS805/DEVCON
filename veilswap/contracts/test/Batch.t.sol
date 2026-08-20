@@ -25,7 +25,7 @@ contract BatchTest is Test {
         weth = new MockERC20("Wrapped Ether", "WETH");
         meme = new MockERC20("Meme Token", "MEME");
         amm = new SimpleAMM(weth, meme);
-        batch = new BatchVeilSwap(amm, 2, 50);
+        batch = new BatchVeilSwap(amm, 2, 50, 100);
 
         weth.mint(lp, POOL_WETH);
         meme.mint(lp, POOL_MEME);

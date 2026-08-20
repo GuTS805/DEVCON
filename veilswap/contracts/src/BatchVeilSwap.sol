@@ -22,6 +22,8 @@ contract BatchVeilSwap {
 
     uint256 public immutable revealDelay;
     uint256 public immutable revealWindow;
+    /// @dev How far the pool may move between the batch opening and settling, in bps.
+    uint256 public immutable maxDriftBps;
 
     struct Commitment {
         address trader;
@@ -39,6 +41,9 @@ contract BatchVeilSwap {
     mapping(bytes32 => Commitment) public commitments;
 
     uint256 public batchId;
+    /// @dev Pool price when the open batch received its first order. Matching is
+    /// anchored to this, not to whatever the price is when someone settles.
+    uint256 public spotAtOpen;
     /// @dev Orders revealed into a batch, awaiting settlement.
     mapping(uint256 => Order[]) internal batchOrders;
     /// @dev Totals per side of the open batch.
@@ -66,13 +71,15 @@ contract BatchVeilSwap {
     error Expired(uint256 currentBlock, uint256 deadline);
     error EmptyBatch();
     error BelowMinimum(address trader, uint256 got, uint256 minOut);
+    error PriceMoved(uint256 spotAtOpen, uint256 spotNow);
 
-    constructor(SimpleAMM _amm, uint256 _revealDelay, uint256 _revealWindow) {
+    constructor(SimpleAMM _amm, uint256 _revealDelay, uint256 _revealWindow, uint256 _maxDriftBps) {
         amm = _amm;
         weth = _amm.weth();
         meme = _amm.meme();
         revealDelay = _revealDelay;
         revealWindow = _revealWindow;
+        maxDriftBps = _maxDriftBps;
 
         weth.approve(address(_amm), type(uint256).max);
         meme.approve(address(_amm), type(uint256).max);
@@ -113,6 +120,9 @@ contract BatchVeilSwap {
 
         c.revealed = true;
 
+        // The first order through the door fixes the rate the batch will match at.
+        if (batchOrders[batchId].length == 0) spotAtOpen = amm.spotPrice();
+
         if (wethIn) {
             weth.transferFrom(msg.sender, address(this), amountIn);
             pendingWethIn += amountIn;
@@ -137,8 +147,14 @@ contract BatchVeilSwap {
         uint256 buyIn = pendingWethIn;
         uint256 sellIn = pendingMemeIn;
 
-        // Spot price of the pool at settlement: MEME per WETH, 1e18 scaled.
-        uint256 spot = (amm.reserveMeme() * 1e18) / amm.reserveWeth();
+        // Settlement is permissionless, so whoever calls this could move the pool in the
+        // same transaction and pick the rate their own order clears at. Match at the
+        // price the batch opened with, and refuse to settle at all if someone has shoved
+        // the pool since — otherwise the leftover swap still fills at their rigged price.
+        uint256 spot = spotAtOpen;
+        uint256 spotNow = amm.spotPrice();
+        uint256 drift = spotNow > spot ? spotNow - spot : spot - spotNow;
+        if (drift * 10_000 > spot * maxDriftBps) revert PriceMoved(spot, spotNow);
 
         // How much of each side finds a counterparty inside the batch.
         uint256 sellInWeth = (sellIn * 1e18) / spot;

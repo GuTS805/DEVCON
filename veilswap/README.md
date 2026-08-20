@@ -99,6 +99,30 @@ imbalance is swapped against the pool:
 `test_offsettingOrdersNeverTouchThePool` asserts the strong version of this: when the
 batch nets to zero, the AMM emits **no `Swap` event whatsoever**.
 
+### The batch had the same disease
+
+Settlement is permissionless, and the first version read the pool's spot price *at
+settlement* to decide how much of the batch matched internally. So whoever called
+`settleBatch` could move the pool and settle in one transaction, choosing the rate their
+own order cleared at. `SettlementAttacker` in `test/BatchManipulation.t.sol` does exactly
+that — a participant with a sell order in the batch shoves the price, settles, and unwinds:
+
+```
+attacker WETH, honest settle   110.000
+attacker WETH, rigged settle   112.964     +2.965 WETH
+buyer MEME,    honest settle   100,000
+buyer MEME,    rigged settle    69,444     -30,555 MEME
+```
+
+The honest buyer lost 30% of their fill to someone who did nothing but call a public
+function at the right moment.
+
+The fix is the same shape as the reveal fix: the batch records the pool price when its
+**first order is revealed**, matches at that anchored price, and refuses to settle if the
+pool has drifted more than 1% since. Moving the price no longer changes the match, and the
+drift bound stops the leftover swap filling at a rigged rate. The rigged settle now
+reverts, while `test_smallDriftStillSettles` keeps ordinary movement working.
+
 ## What this does not fix
 
 Worth saying out loud, because a demo that overclaims is worse than one that doesn't:
@@ -110,7 +134,10 @@ Worth saying out loud, because a demo that overclaims is worse than one that doe
   still public — an observer sees who joined the batch, just not the executed prices or
   sizes of the matched portion.
 - Settlement is permissionless but not yet incentivised; a production version needs to
-  pay whoever calls `settleBatch`.
+  pay whoever calls `settleBatch`. Right now a batch can sit unsettled until someone
+  bothers.
+- Both drift bounds are a fixed 1% against a single spot reading. A real deployment wants
+  a TWAP, so that a pool which is genuinely volatile does not become unusable.
 
 It removes the front-run, and it keeps most of the flow off the AMM's public trade log.
 Session 2's zero-knowledge material is the path to hiding the rest.
@@ -170,6 +197,7 @@ contracts/
   src/MockERC20.sol       WETH / MEME for the demo pool
   test/Sandwich.t.sol     proves the attack, the defence, and the front-run of the reveal
   test/Batch.t.sol        proves offsetting flow never reaches the pool
+  test/BatchManipulation.t.sol  attacks settlement itself, and shows the anchor holding
   script/Deploy.s.sol     seeds 100 WETH / 1,000,000 MEME and funds the actors
 web/
   src/lib/demo.ts         drives each run against the chain, streams beats to the UI
