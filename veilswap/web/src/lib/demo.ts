@@ -31,6 +31,11 @@ export type Beat = {
   actor: "victim" | "searcher" | "pool";
   /// Overrides the actor badge when a beat belongs to someone else in the batch.
   who?: string;
+  /// Pool price (MEME per WETH) once this step has executed. Plotted on the tape,
+  /// which is where the sandwich becomes visible as a dip rather than a sentence.
+  price?: bigint;
+  /// Marks the step where the trader's own order actually filled.
+  fill?: boolean;
   title: string;
   detail?: string;
   block?: number;
@@ -58,6 +63,10 @@ const memeBalance = (who: Hex) =>
 
 const wethBalance = (who: Hex) =>
   publicClient.readContract({ address: WETH, abi: erc20Abi, functionName: "balanceOf", args: [who] });
+
+/// Pool price in MEME per WETH. Read after each step so the tape can plot it.
+const spot = () =>
+  publicClient.readContract({ address: AMM, abi: ammAbi, functionName: "spotPrice" });
 
 const quote = (wethIn: boolean, amountIn: bigint) =>
   publicClient.readContract({ address: AMM, abi: ammAbi, functionName: "quote", args: [wethIn, amountIn] });
@@ -140,6 +149,7 @@ export async function* runExposed(): AsyncGenerator<RunEvent> {
       detail: `10 WETH → MEME · expecting ${fmt(fairOut)} MEME · 10% slippage`,
       tone: "victim",
       targeted: true,
+      price: await spot(),
     },
   };
 
@@ -164,6 +174,7 @@ export async function* runExposed(): AsyncGenerator<RunEvent> {
       block: frontrun.block,
       hash: frontrun.hash,
       tone: "attack",
+      price: await spot(),
     },
   };
 
@@ -187,6 +198,8 @@ export async function* runExposed(): AsyncGenerator<RunEvent> {
       block: swap.block,
       hash: swap.hash,
       tone: "victim",
+      price: await spot(),
+      fill: true,
     },
   };
 
@@ -209,6 +222,7 @@ export async function* runExposed(): AsyncGenerator<RunEvent> {
       block: backrun.block,
       hash: backrun.hash,
       tone: "attack",
+      price: await spot(),
     },
   };
 
@@ -244,6 +258,7 @@ export async function* runSealed(): AsyncGenerator<RunEvent> {
       hash: commitId,
       sealed: true,
       tone: "victim",
+      price: await spot(),
     },
   };
 
@@ -309,6 +324,8 @@ export async function* runSealed(): AsyncGenerator<RunEvent> {
       block: reveal.block,
       hash: reveal.hash,
       tone: "victim",
+      price: await spot(),
+      fill: true,
     },
   };
 

@@ -409,6 +409,162 @@ body {
   line-height: 1.7;
 }
 
+/* ---------- fill bar: what arrived vs what was quoted ---------- */
+
+.fillbar {
+  display: flex;
+  height: 0.5rem;
+  margin: 0.5rem 0 0.7rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.fillbar-kept {
+  background: var(--exposed);
+}
+
+.fillbar-sealed .fillbar-kept {
+  background: var(--sealed);
+}
+
+/* Hatched, so the missing slice reads as absence rather than another quantity. */
+.fillbar-lost {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--exposed) 30%, transparent) 0 3px,
+    transparent 3px 6px
+  );
+}
+
+/* ---------- price tape ---------- */
+
+.tape {
+  margin: 0 0 0.5rem;
+  padding: 0.75rem 0.85rem 0.4rem;
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.tape-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.35rem;
+}
+
+.tape-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  letter-spacing: 0.08em;
+}
+
+.tape-key {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0;
+  border-top: 2px solid currentColor;
+  margin-right: 0.1rem;
+}
+
+.tape-key-quote {
+  border-top-style: dashed;
+  color: var(--muted);
+}
+
+.tape-key-actual {
+  color: var(--exposed);
+}
+
+.tape-sealed .tape-key-actual {
+  color: var(--sealed);
+}
+
+.tape-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.tape-quote {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.tape-trace {
+  fill: none;
+  stroke: var(--exposed);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.tape-sealed .tape-trace {
+  stroke: var(--sealed);
+}
+
+/* The distance the pool was pushed before the trade filled — the theft, drawn. */
+.tape-gap {
+  fill: color-mix(in srgb, var(--exposed) 22%, transparent);
+  stroke: color-mix(in srgb, var(--exposed) 45%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.tape-gap-label,
+.tape-fill-label {
+  font-family: var(--font-data);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  fill: var(--muted);
+}
+
+.tape-gap-label {
+  fill: var(--exposed);
+}
+
+.tape-dot {
+  fill: var(--base);
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.tape-dot-searcher {
+  stroke: var(--exposed);
+}
+
+.tape-dot-fill {
+  fill: var(--text);
+  stroke: var(--text);
+}
+
+.tape-note {
+  margin: 0.5rem 0 0.15rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.tape-note strong {
+  font-family: var(--font-data);
+  font-weight: 500;
+  color: var(--exposed);
+}
+
+.tape-sealed .tape-dot-fill {
+  fill: var(--sealed);
+  stroke: var(--sealed);
+}
+
 /* ---------- second gap: batch clearing ---------- */
 
 .second-gap {

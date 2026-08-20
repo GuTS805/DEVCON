@@ -166,7 +166,12 @@ export default function Page() {
               at the worse price, then sell back into the pool you just moved.
             </p>
           ) : (
-            beats.exposed.map((beat) => <BeatCard key={beat.id} beat={beat} open />)
+            <>
+              <PriceTape beats={beats.exposed} lane="exposed" />
+              {beats.exposed.map((beat) => (
+                <BeatCard key={beat.id} beat={beat} open />
+              ))}
+            </>
           )}
         </div>
 
@@ -186,7 +191,12 @@ export default function Page() {
               in a single transaction. The searcher never sees a trade it can bracket.
             </p>
           ) : (
-            beats.sealed.map((beat) => <BeatCard key={beat.id} beat={beat} open={unsealed} />)
+            <>
+              <PriceTape beats={beats.sealed} lane="sealed" />
+              {beats.sealed.map((beat) => (
+                <BeatCard key={beat.id} beat={beat} open={unsealed} />
+              ))}
+            </>
           )}
         </div>
       </section>
@@ -235,6 +245,114 @@ export default function Page() {
         order flow off the AMM&rsquo;s trade log.
       </p>
     </main>
+  );
+}
+
+/// The pool price across a run, so the attack reads as a shape instead of a sentence.
+///
+/// The dashed line is the price the trade was quoted against. The trace is where the
+/// pool actually sat at each step. On the exposed path the bot pushes the trace below
+/// the line before the trade fills, and that gap is the whole theft; on the sealed path
+/// nothing moves it, so the trace stays flat and there is no gap to draw.
+function PriceTape({ beats, lane }: { beats: Beat[]; lane: Lane }) {
+  const points = beats.filter((b) => b.price !== undefined);
+  if (points.length < 2) return null;
+
+  const values = points.map((b) => Number(formatEther(b.price!)));
+  const opening = values[0];
+  const fillAt = points.findIndex((b) => b.fill);
+
+  const lo = Math.min(...values, opening);
+  const hi = Math.max(...values, opening);
+  const pad = (hi - lo) * 0.35 || opening * 0.02 || 1;
+  const top = hi + pad;
+  const bottom = lo - pad;
+
+  const W = 320;
+  const H = 104;
+  const L = 14;
+  const R = 14;
+  const T = 16;
+  const B = 26;
+
+  const x = (i: number) => L + (i * (W - L - R)) / Math.max(1, points.length - 1);
+  const y = (v: number) => T + ((top - v) / (top - bottom || 1)) * (H - T - B);
+
+  const trace = points.map((b, i) => `${x(i)},${y(values[i])}`).join(" ");
+  const openingY = y(opening);
+
+  // How far the pool had been pushed by the moment the trade filled.
+  const beforeFill = fillAt > 0 ? values[fillAt - 1] : opening;
+  const displaced = opening - beforeFill;
+  const showGap = fillAt > 0 && Math.abs(displaced) / opening > 0.001;
+
+  return (
+    <figure className={`tape tape-${lane}`}>
+      <figcaption className="eyebrow tape-caption">
+        Pool price · MEME per WETH
+        <span className="tape-legend">
+          <i className="tape-key tape-key-quote" /> quoted
+          <i className="tape-key tape-key-actual" /> actual
+        </span>
+      </figcaption>
+
+      <svg viewBox={`0 0 ${W} ${H}`} className="tape-svg" role="img"
+        aria-label={
+          showGap
+            ? `Pool price fell ${Math.abs(displaced).toFixed(0)} MEME per WETH before the trade filled`
+            : "Pool price did not move before the trade filled"
+        }>
+        <line x1={L} y1={openingY} x2={W - R} y2={openingY} className="tape-quote" />
+
+        {showGap && (
+          <>
+            <rect
+              x={x(fillAt - 1)}
+              y={Math.min(openingY, y(beforeFill))}
+              width={Math.max(2, x(fillAt) - x(fillAt - 1))}
+              height={Math.abs(y(beforeFill) - openingY)}
+              className="tape-gap"
+            />
+            <text x={x(fillAt) + 5} y={(openingY + y(beforeFill)) / 2 + 3} className="tape-gap-label">
+              pushed by the bot
+            </text>
+          </>
+        )}
+
+        <polyline points={trace} className="tape-trace" />
+
+        {points.map((b, i) => (
+          <circle
+            key={b.id}
+            cx={x(i)}
+            cy={y(values[i])}
+            r={b.fill ? 4.5 : 2.5}
+            className={`tape-dot tape-dot-${b.actor}${b.fill ? " tape-dot-fill" : ""}`}
+          />
+        ))}
+
+        {fillAt >= 0 && (
+          <text x={x(fillAt)} y={H - 9} className="tape-fill-label" textAnchor="middle">
+            your fill
+          </text>
+        )}
+      </svg>
+
+      <p className="tape-note">
+        {showGap ? (
+          <>
+            The bot moved the pool{" "}
+            <strong>{((Math.abs(displaced) / opening) * 100).toFixed(1)}% against you</strong> before your
+            trade filled.
+          </>
+        ) : (
+          <>
+            Nothing moved the pool between your quote and your fill. The step down after it is your own
+            trade&rsquo;s impact, which every trade pays.
+          </>
+        )}
+      </p>
+    </figure>
   );
 }
 
@@ -298,14 +416,25 @@ function Verdict({ lane, result, empty }: { lane: Lane; result: RunResult | null
     );
   }
 
+  // What arrived, as a share of what was quoted. The missing slice is the shortfall.
+  const kept =
+    result.fairOut > 0n ? Number((result.victimOut * 10_000n) / result.fairOut) / 100 : 100;
+
   return (
     <div className="verdict-cell">
       <p className="eyebrow">You received</p>
       <p className={`verdict-figure ${tone}`}>{fmt(result.victimOut)} MEME</p>
+
+      <div className={`fillbar fillbar-${lane}`} role="img"
+        aria-label={`${kept.toFixed(1)} percent of the quoted amount`}>
+        <span className="fillbar-kept" style={{ width: `${Math.min(100, kept)}%` }} />
+        {kept < 99.95 && <span className="fillbar-lost" style={{ width: `${100 - kept}%` }} />}
+      </div>
+
       <p className="verdict-sub">
         {result.victimLoss > 0n
-          ? `${fmt(result.victimLoss)} MEME short of the ${fmt(result.fairOut)} you were quoted`
-          : `Exactly the ${fmt(result.fairOut)} MEME you were quoted`}
+          ? `${kept.toFixed(1)}% of your quote arrived — ${fmt(result.victimLoss)} MEME short of ${fmt(result.fairOut)}`
+          : `The full ${fmt(result.fairOut)} MEME you were quoted`}
       </p>
       <p className="verdict-sub">
         Bot took {Number(formatEther(result.searcherProfit)).toFixed(4)} WETH
