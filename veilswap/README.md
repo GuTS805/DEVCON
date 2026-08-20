@@ -1,5 +1,12 @@
 # VeilSwap
 
+### ▶ Live demo: **[veilswap.vercel.app](https://veilswap.vercel.app)**
+
+Press the three buttons in order and watch the numbers below diverge. Nothing is
+pre-recorded — each run executes against a real chain and reads the result back.
+
+---
+
 The same 10 WETH trade, run three ways against the same live pool. Once through the
 public mempool, where a searcher bot reads it and brackets it. Once sealed behind a
 commit-reveal, where the bot has nothing to read. Once inside a batch, where most of the

@@ -5,9 +5,14 @@ using Ethereum*.
 
 ## [veilswap/](veilswap/) — Private DeFi & Mempools
 
+### ▶ Live demo: **[veilswap.vercel.app](https://veilswap.vercel.app)**
+
 The same trade, run three ways against the same live pool: exposed to the public mempool,
 sealed behind a commit-reveal, and cleared inside a batch. An autonomous searcher bot
 attacks each one so the results are measured rather than asserted.
+
+Every number on that page comes out of Solidity executing on a real chain while you watch
+— a disposable Anvil node, not a recording and not a mock.
 
 | | You received | The bot took | The pool saw |
 |---|---|---|---|
