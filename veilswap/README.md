@@ -53,6 +53,38 @@ You are the filling. The bot is the bread on both sides.
 The parameters become public only once the swap has already settled, so there is no
 window in which a searcher knows the trade and can still act on it.
 
+## How the three routes fit together
+
+One trade, three ways to reach the same pool. What changes is how much of it is legible
+on the way there.
+
+```mermaid
+flowchart TB
+    T["Trader<br/>10 WETH to MEME"]
+
+    T --> A1["swap()<br/>straight at the pool"]
+    T --> B1["VeilSwap.commit(hash)"]
+    T --> C1["BatchVeilSwap.commit(hash)"]
+
+    A1 --> A2{{"Public mempool<br/>size and direction readable"}}
+    A2 --> A3["Searcher buys ahead,<br/>then sells back"]
+    A3 --> POOL
+
+    B1 --> B2{{"Public mempool<br/>a hash, nothing to bracket"}}
+    B2 --> B3["reveal() after 3 blocks<br/>swaps in the same transaction<br/>reverts if spot moved over 1%"]
+    B3 --> POOL
+
+    C1 --> C2["reveal() queues the order<br/>it does not trade yet"]
+    C2 --> C3["settleBatch()<br/>orders matched against each other<br/>at the price the batch opened on"]
+    C3 -->|"only the imbalance"| POOL
+
+    POOL[("SimpleAMM<br/>x · y = k")]
+```
+
+The searcher reads the same mempool in all three cases. On the first it finds a trade to
+bracket, on the second a hash it cannot use, and on the third an order that will not
+touch the pool at all if something in the batch offsets it.
+
 ## What the bot found, and what it changed
 
 Building the searcher as a real, independent process broke the first version of this
