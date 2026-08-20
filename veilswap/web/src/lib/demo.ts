@@ -36,6 +36,9 @@ export type Beat = {
   price?: bigint;
   /// Marks the step where the trader's own order actually filled.
   fill?: boolean;
+  /// Which of the four shared moments this belongs to. Both paths are pinned to the
+  /// same four, so they can be read across rather than as two separate logs.
+  moment?: 1 | 2 | 3 | 4;
   title: string;
   detail?: string;
   block?: number;
@@ -150,6 +153,7 @@ export async function* runExposed(): AsyncGenerator<RunEvent> {
       tone: "victim",
       targeted: true,
       price: await spot(),
+      moment: 1,
     },
   };
 
@@ -175,6 +179,7 @@ export async function* runExposed(): AsyncGenerator<RunEvent> {
       hash: frontrun.hash,
       tone: "attack",
       price: await spot(),
+      moment: 2,
     },
   };
 
@@ -200,6 +205,7 @@ export async function* runExposed(): AsyncGenerator<RunEvent> {
       tone: "victim",
       price: await spot(),
       fill: true,
+      moment: 3,
     },
   };
 
@@ -223,6 +229,7 @@ export async function* runExposed(): AsyncGenerator<RunEvent> {
       hash: backrun.hash,
       tone: "attack",
       price: await spot(),
+      moment: 4,
     },
   };
 
@@ -259,6 +266,7 @@ export async function* runSealed(): AsyncGenerator<RunEvent> {
       sealed: true,
       tone: "victim",
       price: await spot(),
+      moment: 1,
     },
   };
 
@@ -270,6 +278,7 @@ export async function* runSealed(): AsyncGenerator<RunEvent> {
       title: "Bot reads the mempool and finds a hash",
       detail: "No size, no direction, nothing to bracket. It sits this one out.",
       tone: "quiet",
+      moment: 2,
     },
   };
 
@@ -287,6 +296,7 @@ export async function* runSealed(): AsyncGenerator<RunEvent> {
         detail: "The order stays unreadable until the reveal window opens.",
         block: now,
         tone: "quiet",
+        moment: 2,
       },
     };
     await new Promise((r) => setTimeout(r, 500));
@@ -301,6 +311,7 @@ export async function* runSealed(): AsyncGenerator<RunEvent> {
       detail: "The order can now be opened, and only by the trader who sealed it.",
       block: target,
       tone: "quiet",
+      moment: 2,
     },
   };
 
@@ -326,6 +337,22 @@ export async function* runSealed(): AsyncGenerator<RunEvent> {
       tone: "victim",
       price: await spot(),
       fill: true,
+      moment: 3,
+    },
+  };
+
+  // Closes the fourth moment so the two paths line up row for row. There is no
+  // transaction here, which is exactly the point.
+  yield {
+    type: "beat",
+    beat: {
+      id: "nothing-after",
+      actor: "searcher",
+      title: "Nothing to sell back",
+      detail: "The bot never took a position, so there is no spread to book.",
+      tone: "quiet",
+      price: await spot(),
+      moment: 4,
     },
   };
 

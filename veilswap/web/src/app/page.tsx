@@ -12,16 +12,40 @@ import {
   runExposed,
   runSealed,
   type Beat,
+  type RunEvent,
   type RunResult,
 } from "@/lib/demo";
 
 type Lane = "exposed" | "sealed" | "batch";
 
-const RUNNERS: Record<Lane, () => AsyncGenerator<import("@/lib/demo").RunEvent>> = {
+const RUNNERS: Record<Lane, () => AsyncGenerator<RunEvent>> = {
   exposed: runExposed,
   sealed: runSealed,
   batch: runBatch,
 };
+
+/// The four beats both paths are pinned to, so the comparison can be read across.
+const MOMENTS = [
+  { n: 1, title: "Your order goes out" },
+  { n: 2, title: "What a searcher can do with it" },
+  { n: 3, title: "Your trade fills" },
+  { n: 4, title: "What happens after" },
+] as const;
+
+/// The chart needs a different shape when the columns stack, or its labels end up
+/// rendering at a few pixels tall.
+function useNarrow() {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 620px)");
+    const sync = () => setNarrow(mq.matches);
+    // Deferred so the first write is not synchronous inside the effect.
+    void Promise.resolve().then(sync);
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return narrow;
+}
 
 /// Repeated beats with the same id (the reveal countdown) update in place.
 function upsert(list: Beat[], beat: Beat) {
@@ -40,6 +64,7 @@ export default function Page() {
     batch: null,
   });
   const [running, setRunning] = useState<Lane | null>(null);
+  const [busy, setBusy] = useState(false);
   const [unsealed, setUnsealed] = useState(false);
   const [reserves, setReserves] = useState<{ weth: bigint; meme: bigint } | null>(null);
   const [offline, setOffline] = useState(false);
@@ -58,13 +83,14 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
+    // Wrapped so the reserve write lands in a microtask rather than synchronously
+    // inside the effect body.
     void (async () => {
       await readReserves();
     })();
   }, [readReserves]);
 
-  const run = async (lane: Lane) => {
-    if (running) return;
+  const runLane = async (lane: Lane) => {
     setRunning(lane);
     setBeats((b) => ({ ...b, [lane]: [] }));
     setResults((r) => ({ ...r, [lane]: null }));
@@ -73,8 +99,7 @@ export default function Page() {
     try {
       await initDemo();
       await resetPool();
-      const stream = RUNNERS[lane]();
-      for await (const event of stream) {
+      for await (const event of RUNNERS[lane]()) {
         if (event.type === "beat") {
           setBeats((b) => ({ ...b, [lane]: upsert(b[lane], event.beat) }));
           if (event.beat.id === "reveal" || event.beat.id === "revealed") setUnsealed(true);
@@ -87,357 +112,473 @@ export default function Page() {
       setOffline(true);
     } finally {
       setRunning(null);
-      readReserves();
+      // Put the pool back before letting go. Leaving it moved would make it the
+      // baseline for whoever loads the page next, and their numbers would drift
+      // away from the ones this demo is supposed to reproduce.
+      try {
+        await resetPool();
+      } catch {
+        /* the run already reported whatever went wrong */
+      }
+      void readReserves();
     }
   };
 
-  const clearBoard = async () => {
-    if (running) return;
-    await resetPool();
-    setBeats({ exposed: [], sealed: [], batch: [] });
-    setResults({ exposed: null, sealed: null, batch: null });
-    setUnsealed(false);
-    readReserves();
+  const guard = async (job: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await job();
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const runComparison = () =>
+    guard(async () => {
+      await runLane("exposed");
+      await runLane("sealed");
+    });
+
+  const clearBoard = () =>
+    guard(async () => {
+      await resetPool();
+      setBeats({ exposed: [], sealed: [], batch: [] });
+      setResults({ exposed: null, sealed: null, batch: null });
+      setUnsealed(false);
+      void readReserves();
+    });
+
+  const status =
+    running === "exposed"
+      ? "Sending your trade through the public mempool"
+      : running === "sealed"
+        ? "Sealing the same trade behind a commit"
+        : running === "batch"
+          ? "Clearing three sealed orders as one batch"
+          : null;
 
   return (
     <main className="shell">
       <header className="masthead">
-        <div>
-          <p className="eyebrow">Road to Devcon · NITK Surathkal</p>
+        <p className="eyebrow">Road to Devcon · NITK Surathkal</p>
+        <div className="masthead-row">
           <h1 className="wordmark">
             <span className="veil">Veil</span>Swap
           </h1>
-          <p className="thesis">
-            The same 10 WETH trade, run against a live pool three ways: exposed to the public mempool,
-            sealed behind a commit-reveal, and cleared inside a batch. Compare what you walk away with,
-            and how much of it anyone else can see.
-          </p>
+          <dl className="pool">
+            <div>
+              <dt className="eyebrow">Pool</dt>
+              <dd className="num">{reserves ? fmt(reserves.weth, 2) : "—"} WETH</dd>
+            </div>
+            <div>
+              <dt className="eyebrow" aria-hidden="true">
+                &nbsp;
+              </dt>
+              <dd className="num">{reserves ? fmt(reserves.meme) : "—"} MEME</dd>
+            </div>
+          </dl>
         </div>
-        <dl className="pool-readout">
-          <div>
-            <dt className="eyebrow">Pool WETH</dt>
-            <dd>{reserves ? fmt(reserves.weth, 2) : "—"}</dd>
-          </div>
-          <div>
-            <dt className="eyebrow">Pool MEME</dt>
-            <dd>{reserves ? fmt(reserves.meme) : "—"}</dd>
-          </div>
-        </dl>
+        <p className="thesis">
+          One 10 WETH trade, routed two ways against the same live pool. Everything below executes on
+          chain while you watch.
+        </p>
       </header>
 
+      {offline && (
+        <p className="banner">
+          {RPC_IS_LOCAL ? (
+            <>
+              No chain at {new URL(RPC).host}. Start it with <code>anvil --block-time 2</code>, then
+              deploy with <code>npm run deploy</code>.
+            </>
+          ) : (
+            <>
+              The demo chain at {new URL(RPC).host} is not answering. It is a disposable node and may be
+              restarting — give it a moment and reload.
+            </>
+          )}
+        </p>
+      )}
+
+      <section className="scoreboard">
+        <Outcome
+          label="Through the public mempool"
+          tone="exposed"
+          result={results.exposed}
+          running={running === "exposed"}
+        />
+
+        <Delta exposed={results.exposed} sealed={results.sealed} />
+
+        <Outcome
+          label="Sealed with VeilSwap"
+          tone="sealed"
+          result={results.sealed}
+          running={running === "sealed"}
+        />
+      </section>
+
       <div className="controls">
-        <button className="btn btn-exposed" onClick={() => run("exposed")} disabled={running !== null}>
-          {running === "exposed" ? "Running…" : "Run it exposed"}
+        <button className="btn btn-primary" onClick={runComparison} disabled={busy}>
+          {busy && running !== "batch" ? "Running…" : "Run the comparison"}
         </button>
-        <button className="btn btn-sealed" onClick={() => run("sealed")} disabled={running !== null}>
-          {running === "sealed" ? "Running…" : "Run it sealed"}
+        <button className="btn" onClick={() => guard(() => runLane("batch"))} disabled={busy}>
+          {running === "batch" ? "Running…" : "Run the batch"}
         </button>
-        <button className="btn btn-sealed" onClick={() => run("batch")} disabled={running !== null}>
-          {running === "batch" ? "Running…" : "Run it as a batch"}
+        <button className="btn btn-quiet" onClick={clearBoard} disabled={busy}>
+          Reset
         </button>
-        <button className="btn" onClick={clearBoard} disabled={running !== null}>
-          Reset pool
-        </button>
+        {status && <span className="status">{status}…</span>}
       </div>
 
-      {offline &&
-        (RPC_IS_LOCAL ? (
-          <p className="banner">
-            No chain at {new URL(RPC).host}. Start it with <code>anvil --block-time 2</code>, then deploy
-            with <code>npm run deploy</code> from the project root.
-          </p>
-        ) : (
-          <p className="banner">
-            The demo chain at {new URL(RPC).host} is not answering. It is a disposable Anvil node and may
-            be restarting — give it a moment and reload.
-          </p>
+      <Tape exposed={beats.exposed} sealed={beats.sealed} />
+
+      <section className="moments">
+        <div className="moments-head">
+          <span />
+          <p className="eyebrow col-exposed">Public mempool</p>
+          <p className="eyebrow col-sealed">Commit-reveal</p>
+        </div>
+
+        {MOMENTS.map((m) => (
+          <div className="moment" key={m.n}>
+            <div className="moment-label">
+              <span className="moment-n num">{String(m.n).padStart(2, "0")}</span>
+              <h2 className="moment-title">{m.title}</h2>
+            </div>
+            <Cell beats={beats.exposed.filter((b) => b.moment === m.n)} open lane="exposed" />
+            <Cell
+              beats={beats.sealed.filter((b) => b.moment === m.n)}
+              open={unsealed}
+              lane="sealed"
+            />
+          </div>
         ))}
-
-      <section className="track">
-        <div className="lane lane-exposed">
-          <div className="lane-head">
-            <p className="eyebrow">Path A · public mempool</p>
-            <h2 className="lane-title">Anyone can read your order</h2>
-          </div>
-          {beats.exposed.length === 0 ? (
-            <p className="placeholder">
-              Run it exposed to watch a searcher bracket your swap: buy ahead of you, let your trade fill
-              at the worse price, then sell back into the pool you just moved.
-            </p>
-          ) : (
-            <>
-              <PriceTape beats={beats.exposed} lane="exposed" />
-              {beats.exposed.map((beat) => (
-                <BeatCard key={beat.id} beat={beat} open />
-              ))}
-            </>
-          )}
-        </div>
-
-        <div className="clock" aria-hidden="true">
-          <span className="clock-label">Same pool</span>
-          <span className="clock-rail" />
-        </div>
-
-        <div className="lane lane-sealed">
-          <div className="lane-head">
-            <p className="eyebrow">Path B · commit-reveal</p>
-            <h2 className="lane-title">Nobody can read it until it is done</h2>
-          </div>
-          {beats.sealed.length === 0 ? (
-            <p className="placeholder">
-              Run it sealed to publish only a hash of your order, wait two blocks, then reveal and execute
-              in a single transaction. The searcher never sees a trade it can bracket.
-            </p>
-          ) : (
-            <>
-              <PriceTape beats={beats.sealed} lane="sealed" />
-              {beats.sealed.map((beat) => (
-                <BeatCard key={beat.id} beat={beat} open={unsealed} />
-              ))}
-            </>
-          )}
-        </div>
       </section>
 
-      <section className="verdict">
-        <Verdict
-          lane="exposed"
-          result={results.exposed}
-          empty="No exposed run yet."
-        />
-        <div aria-hidden="true" />
-        <Verdict lane="sealed" result={results.sealed} empty="No sealed run yet." />
-      </section>
-
-      <section className="second-gap">
-        <div className="second-gap-intro">
+      <section className="act">
+        <div className="act-label">
           <p className="eyebrow">The second gap</p>
-          <h2 className="second-gap-title">A settled trade is still a public trade</h2>
-          <p className="thesis">
-            Sealing the order removes the front-run, but once it executes the swap is on chain at full
-            size, tagged with your address. Batching closes that: orders revealed together are matched
-            against each other first, and only the leftover imbalance is sent to the pool. Whatever finds
-            a counterparty inside the batch never becomes a swap at all.
-          </p>
-          <HiddenFigure result={results.batch} />
+          <h2 className="act-title">A settled trade is still a public trade</h2>
         </div>
 
-        <div className="lane lane-batch">
-          {beats.batch.length === 0 ? (
-            <p className="placeholder">
-              Run it as a batch to seal three orders at once — you buying, another buyer, and someone
-              unwinding on the other side — then settle them together at one clearing price.
-            </p>
-          ) : (
-            beats.batch.map((beat) => <BeatCard key={beat.id} beat={beat} open={unsealed} />)
-          )}
+        <p className="act-lede">
+          Sealing the order removes the front-run, but once it executes the swap is on chain at full
+          size, tagged with your address. Batching closes that: orders revealed together are matched
+          against each other first, and only the leftover imbalance reaches the pool.
+        </p>
+
+        <div className="act-figure">
+          <Hidden result={results.batch} />
         </div>
+
+        {beats.batch.length > 0 && (
+          <ol className="feed">
+            {beats.batch.map((b) => (
+              <li key={b.id}>
+                <BeatLine beat={b} open={unsealed} />
+              </li>
+            ))}
+          </ol>
+        )}
       </section>
 
-      <p className="footnote">
-        Everything above executes on a local Anvil chain against real Solidity, not a mock. The pool is a
-        constant-product AMM seeded at 100 WETH / 1,000,000 MEME, and the sandwich reproduces the Session
-        1 lab exactly. Neither defence is total: a validator can still censor or delay a reveal, a commit
-        leaks that <em>some</em> order is coming, and batching hides flow from the pool while the reveal
-        transactions themselves stay public. Together they remove the front-run and keep most of the
-        order flow off the AMM&rsquo;s trade log.
-      </p>
+      <footer className="footnote">
+        <p>
+          The pool is a constant-product AMM seeded at 100 WETH / 1,000,000 MEME, and the sandwich
+          reproduces the Session 1 lab to the wei. Neither defence is total: a validator can still censor
+          or delay a reveal, a commit leaks that <em>some</em> order is coming, and the reveal
+          transactions themselves stay public. Together they remove the front-run and keep most of the
+          order flow off the pool&rsquo;s trade log.
+        </p>
+      </footer>
     </main>
   );
 }
 
-/// The pool price across a run, so the attack reads as a shape instead of a sentence.
-///
-/// The dashed line is the price the trade was quoted against. The trace is where the
-/// pool actually sat at each step. On the exposed path the bot pushes the trace below
-/// the line before the trade fills, and that gap is the whole theft; on the sealed path
-/// nothing moves it, so the trace stays flat and there is no gap to draw.
-function PriceTape({ beats, lane }: { beats: Beat[]; lane: Lane }) {
-  const points = beats.filter((b) => b.price !== undefined);
-  if (points.length < 2) return null;
+/* ---------- scoreboard ---------- */
 
-  const values = points.map((b) => Number(formatEther(b.price!)));
-  const opening = values[0];
-  const fillAt = points.findIndex((b) => b.fill);
+function Outcome({
+  label,
+  tone,
+  result,
+  running,
+}: {
+  label: string;
+  tone: "exposed" | "sealed";
+  result: RunResult | null;
+  running: boolean;
+}) {
+  const kept =
+    result && result.fairOut > 0n ? Number((result.victimOut * 10_000n) / result.fairOut) / 100 : null;
 
-  const lo = Math.min(...values, opening);
-  const hi = Math.max(...values, opening);
-  const pad = (hi - lo) * 0.35 || opening * 0.02 || 1;
+  return (
+    <div className={`outcome outcome-${tone}${running ? " is-running" : ""}`}>
+      <p className="eyebrow">{label}</p>
+      <p className={`outcome-figure${result ? "" : " is-empty"}`}>
+        {result ? fmt(result.victimOut) : "—"}
+        {result && <span className="outcome-unit">MEME</span>}
+      </p>
+
+      {kept === null ? (
+        <span className="fillbar-idle" aria-hidden="true" />
+      ) : (
+        <div className="fillbar" role="img" aria-label={`${kept.toFixed(1)}% of the quote`}>
+          <span className="fillbar-kept" style={{ width: `${Math.min(100, kept)}%` }} />
+        </div>
+      )}
+
+      <p className="outcome-sub">
+        {result ? (
+          result.victimLoss > 0n ? (
+            <>
+              {kept!.toFixed(1)}% of your quote · bot took{" "}
+              <strong>{Number(formatEther(result.searcherProfit)).toFixed(4)} WETH</strong>
+            </>
+          ) : (
+            <>Every MEME you were quoted · bot took nothing</>
+          )
+        ) : (
+          "Awaiting a run"
+        )}
+      </p>
+    </div>
+  );
+}
+
+/// The money that changed hands between the two routes.
+function Delta({ exposed, sealed }: { exposed: RunResult | null; sealed: RunResult | null }) {
+  const gap = exposed && sealed ? sealed.victimOut - exposed.victimOut : null;
+
+  return (
+    <div className="delta" aria-hidden={gap === null}>
+      <span className="delta-rule" />
+      {gap !== null && gap > 0n ? (
+        <>
+          <span className="delta-value num">{fmt(gap)}</span>
+          <span className="eyebrow">MEME difference</span>
+        </>
+      ) : (
+        <span className="eyebrow delta-idle">vs</span>
+      )}
+      <span className="delta-rule" />
+    </div>
+  );
+}
+
+/* ---------- price tape ---------- */
+
+/// Both routes on one axis. The pool starts and ends in the same place either way;
+/// the exposed line takes a detour through a dip, and the trade fills inside it.
+function Tape({ exposed, sealed }: { exposed: Beat[]; sealed: Beat[] }) {
+  const narrow = useNarrow();
+  const series = (list: Beat[]) => {
+    const out: (number | null)[] = [];
+    let last: number | null = null;
+    for (let m = 1; m <= 4; m++) {
+      const priced = list.filter((b) => b.moment === m && b.price !== undefined);
+      const v: number | null = priced.length
+        ? Number(formatEther(priced[priced.length - 1].price!))
+        : last;
+      out.push(v);
+      if (v !== null) last = v;
+    }
+    return out;
+  };
+
+  const a = series(exposed);
+  const b = series(sealed);
+  const known = [...a, ...b].filter((v): v is number => v !== null);
+  if (known.length < 2) return null;
+
+  const opening = a[0] ?? b[0] ?? known[0];
+  const lo = Math.min(...known);
+  const hi = Math.max(...known, opening);
+  const pad = (hi - lo) * 0.3 || opening * 0.02 || 1;
   const top = hi + pad;
   const bottom = lo - pad;
 
-  const W = 320;
-  const H = 104;
-  const L = 14;
-  const R = 14;
-  const T = 16;
-  const B = 26;
+  // Stacked layouts get a squarer box so the type inside it stays legible.
+  const W = narrow ? 360 : 720;
+  const H = narrow ? 230 : 190;
+  const L = narrow ? 44 : 52;
+  const R = narrow ? 14 : 116;
+  const T = narrow ? 18 : 22;
+  const B = narrow ? 30 : 34;
 
-  const x = (i: number) => L + (i * (W - L - R)) / Math.max(1, points.length - 1);
+  const x = (i: number) => L + (i * (W - L - R)) / 3;
   const y = (v: number) => T + ((top - v) / (top - bottom || 1)) * (H - T - B);
 
-  const trace = points.map((b, i) => `${x(i)},${y(values[i])}`).join(" ");
-  const openingY = y(opening);
+  const path = (vals: (number | null)[]) =>
+    vals
+      .map((v, i) => (v === null ? null : `${i === 0 ? "M" : "L"}${x(i)},${y(v)}`))
+      .filter(Boolean)
+      .join(" ");
 
-  // How far the pool had been pushed by the moment the trade filled.
-  const beforeFill = fillAt > 0 ? values[fillAt - 1] : opening;
-  const displaced = opening - beforeFill;
-  const showGap = fillAt > 0 && Math.abs(displaced) / opening > 0.001;
+  const openY = y(opening);
+  const fillIdx = 2;
+  const dipped = a[1] !== null && a[1] < opening;
+
+  // Both routes leave the pool in the same place, so the end labels land on top of
+  // each other unless they are pushed apart.
+  const endLabels = (() => {
+    const ya = a[3] !== null ? y(a[3]) + 3 : 0;
+    const yb = b[3] !== null ? y(b[3]) + 3 : 0;
+    if (a[3] === null || b[3] === null || Math.abs(ya - yb) >= 13) return { a: ya, b: yb };
+    const mid = (ya + yb) / 2;
+    return { a: mid + 8, b: mid - 8 };
+  })();
 
   return (
-    <figure className={`tape tape-${lane}`}>
-      <figcaption className="eyebrow tape-caption">
-        Pool price · MEME per WETH
+    <figure className="tape">
+      <figcaption className="tape-caption">
+        <span className="eyebrow">Pool price · MEME per WETH</span>
         <span className="tape-legend">
-          <i className="tape-key tape-key-quote" /> quoted
-          <i className="tape-key tape-key-actual" /> actual
+          <b className="k k-quote" /> quoted
+          <b className="k k-exposed" /> exposed
+          <b className="k k-sealed" /> sealed
         </span>
       </figcaption>
 
       <svg viewBox={`0 0 ${W} ${H}`} className="tape-svg" role="img"
-        aria-label={
-          showGap
-            ? `Pool price fell ${Math.abs(displaced).toFixed(0)} MEME per WETH before the trade filled`
-            : "Pool price did not move before the trade filled"
-        }>
-        <line x1={L} y1={openingY} x2={W - R} y2={openingY} className="tape-quote" />
+        aria-label="Pool price across the four moments for both routes">
+        <line x1={L} y1={openY} x2={W - R} y2={openY} className="t-quote" />
+        <text x={L - 8} y={openY + 3} className="t-axis" textAnchor="end">
+          {Math.round(opening).toLocaleString()}
+        </text>
 
-        {showGap && (
-          <>
-            <rect
-              x={x(fillAt - 1)}
-              y={Math.min(openingY, y(beforeFill))}
-              width={Math.max(2, x(fillAt) - x(fillAt - 1))}
-              height={Math.abs(y(beforeFill) - openingY)}
-              className="tape-gap"
-            />
-            <text x={x(fillAt) + 5} y={(openingY + y(beforeFill)) / 2 + 3} className="tape-gap-label">
-              pushed by the bot
-            </text>
-          </>
+        {dipped && (
+          <rect
+            x={x(1)}
+            y={openY}
+            width={x(fillIdx) - x(1)}
+            height={Math.max(0, y(a[1]!) - openY)}
+            className="t-gap"
+          />
         )}
 
-        <polyline points={trace} className="tape-trace" />
-
-        {points.map((b, i) => (
-          <circle
-            key={b.id}
-            cx={x(i)}
-            cy={y(values[i])}
-            r={b.fill ? 4.5 : 2.5}
-            className={`tape-dot tape-dot-${b.actor}${b.fill ? " tape-dot-fill" : ""}`}
-          />
+        {MOMENTS.map((m, i) => (
+          <text key={m.n} x={x(i)} y={H - 12} className="t-axis" textAnchor="middle">
+            {String(m.n).padStart(2, "0")}
+          </text>
         ))}
 
-        {fillAt >= 0 && (
-          <text x={x(fillAt)} y={H - 9} className="tape-fill-label" textAnchor="middle">
-            your fill
+        <path d={path(b)} className="t-line t-sealed" />
+        <path d={path(a)} className="t-line t-exposed" />
+
+        {a.map((v, i) =>
+          v === null ? null : (
+            <circle key={`a${i}`} cx={x(i)} cy={y(v)} r={i === fillIdx ? 5 : 3} className="t-dot t-dot-exposed" />
+          ),
+        )}
+        {b.map((v, i) =>
+          v === null ? null : (
+            <circle key={`b${i}`} cx={x(i)} cy={y(v)} r={i === fillIdx ? 5 : 3} className="t-dot t-dot-sealed" />
+          ),
+        )}
+
+        {!narrow && a[3] !== null && (
+          <text x={x(3) + 10} y={endLabels.a} className="t-tag t-tag-exposed">
+            exposed
+          </text>
+        )}
+        {!narrow && b[3] !== null && (
+          <text x={x(3) + 10} y={endLabels.b} className="t-tag t-tag-sealed">
+            sealed
           </text>
         )}
       </svg>
 
       <p className="tape-note">
-        {showGap ? (
+        {dipped ? (
           <>
-            The bot moved the pool{" "}
-            <strong>{((Math.abs(displaced) / opening) * 100).toFixed(1)}% against you</strong> before your
-            trade filled.
+            The bot pushed the pool{" "}
+            <strong>{(((opening - a[1]!) / opening) * 100).toFixed(1)}% against you</strong> before your
+            trade filled. The drop that follows on both lines is your own trade&rsquo;s impact, which
+            every trade pays.
           </>
         ) : (
-          <>
-            Nothing moved the pool between your quote and your fill. The step down after it is your own
-            trade&rsquo;s impact, which every trade pays.
-          </>
+          <>Nothing moved the pool between the quote and the fill.</>
         )}
       </p>
     </figure>
   );
 }
 
-function BeatCard({ beat, open }: { beat: Beat; open: boolean }) {
-  const detail = beat.sealed ? (
-    <>
-      <span className="redactable" data-open={open}>
-        {beat.detail}
-      </span>
-      <span className="redaction-note">
-        {open ? "Revealed after settlement" : "Sealed — on chain as a hash only"}
-      </span>
-    </>
-  ) : (
-    beat.detail
-  );
+/* ---------- moments ---------- */
 
-  return (
-    <article className={`beat beat-${beat.tone}${beat.targeted ? " beat-targeted" : ""}`}>
-      {beat.targeted && <span className="watching">Bot watching</span>}
-      <div className="beat-top">
-        <p className="eyebrow">{beat.who ?? (beat.actor === "searcher" ? "Searcher bot" : "You")}</p>
-        {beat.block !== undefined && <p className="eyebrow">Block {beat.block}</p>}
-      </div>
-      <h3 className="beat-title">{beat.title}</h3>
-      <p className="beat-detail">{detail}</p>
-      {beat.hash && <code className="beat-hash">{beat.hash}</code>}
-    </article>
-  );
-}
+const PATH_NAME: Partial<Record<Lane, string>> = {
+  exposed: "Public mempool",
+  sealed: "Commit-reveal",
+};
 
-/// How much of the batch's order flow the pool — and therefore any indexer — never saw.
-function HiddenFigure({ result }: { result: RunResult | null }) {
-  if (!result?.hidden) {
-    return <p className="verdict-sub">No batch run yet.</p>;
+function Cell({ beats, open, lane }: { beats: Beat[]; open: boolean; lane: Lane }) {
+  if (beats.length === 0) {
+    return <div className={`cell cell-${lane} is-empty`} data-path={PATH_NAME[lane]} />;
   }
-
-  const { submitted, observed } = result.hidden;
-  const hiddenShare = submitted === 0n ? 0 : Number(((submitted - observed) * 100n) / submitted);
-
   return (
-    <div className="hidden-figure">
-      <p className="eyebrow">Order flow the pool never saw</p>
-      <p className="verdict-figure figure-sealed">{hiddenShare}%</p>
-      <p className="verdict-sub">
-        {fmt(submitted, 0)} WETH of buying was submitted. Only {fmt(observed, 0)} WETH reached the pool.
-      </p>
+    <div className={`cell cell-${lane}`} data-path={PATH_NAME[lane]}>
+      {beats.map((b) => (
+        <BeatLine key={b.id} beat={b} open={open} />
+      ))}
     </div>
   );
 }
 
-function Verdict({ lane, result, empty }: { lane: Lane; result: RunResult | null; empty: string }) {
-  const tone = lane === "exposed" ? "figure-exposed" : "figure-sealed";
+function BeatLine({ beat, open }: { beat: Beat; open: boolean }) {
+  return (
+    <article className={`beat beat-${beat.tone}${beat.targeted ? " is-targeted" : ""}`}>
+      <header className="beat-head">
+        <span className="eyebrow">
+          {beat.who ?? (beat.actor === "searcher" ? "Searcher bot" : "You")}
+        </span>
+        {beat.block !== undefined && <span className="eyebrow num">#{beat.block}</span>}
+      </header>
 
-  if (!result) {
-    return (
-      <div className="verdict-cell">
-        <p className="eyebrow">{lane === "exposed" ? "Path A result" : "Path B result"}</p>
-        <p className="verdict-sub">{empty}</p>
-      </div>
-    );
+      <p className="beat-title">{beat.title}</p>
+
+      {beat.detail && (
+        <p className="beat-detail">
+          {beat.sealed ? (
+            <>
+              <span className="redactable" data-open={open}>
+                {beat.detail}
+              </span>
+              <span className="redaction-note">
+                {open ? "Revealed after settlement" : "On chain as a hash only"}
+              </span>
+            </>
+          ) : (
+            beat.detail
+          )}
+        </p>
+      )}
+
+      {beat.hash && <p className="beat-hash num">{beat.hash}</p>}
+    </article>
+  );
+}
+
+/* ---------- batch ---------- */
+
+function Hidden({ result }: { result: RunResult | null }) {
+  if (!result?.hidden) {
+    return <p className="act-empty">Run the batch to see how little of it reaches the pool.</p>;
   }
 
-  // What arrived, as a share of what was quoted. The missing slice is the shortfall.
-  const kept =
-    result.fairOut > 0n ? Number((result.victimOut * 10_000n) / result.fairOut) / 100 : 100;
+  const { submitted, observed } = result.hidden;
+  const share = submitted === 0n ? 0 : Number(((submitted - observed) * 100n) / submitted);
 
   return (
-    <div className="verdict-cell">
-      <p className="eyebrow">You received</p>
-      <p className={`verdict-figure ${tone}`}>{fmt(result.victimOut)} MEME</p>
-
-      <div className={`fillbar fillbar-${lane}`} role="img"
-        aria-label={`${kept.toFixed(1)} percent of the quoted amount`}>
-        <span className="fillbar-kept" style={{ width: `${Math.min(100, kept)}%` }} />
-        {kept < 99.95 && <span className="fillbar-lost" style={{ width: `${100 - kept}%` }} />}
-      </div>
-
-      <p className="verdict-sub">
-        {result.victimLoss > 0n
-          ? `${kept.toFixed(1)}% of your quote arrived — ${fmt(result.victimLoss)} MEME short of ${fmt(result.fairOut)}`
-          : `The full ${fmt(result.fairOut)} MEME you were quoted`}
+    <div className="hidden-figure">
+      <p className="eyebrow">Order flow the pool never saw</p>
+      <p className="hidden-value">
+        {share}
+        <span className="outcome-unit">%</span>
       </p>
-      <p className="verdict-sub">
-        Bot took {Number(formatEther(result.searcherProfit)).toFixed(4)} WETH
+      <p className="outcome-sub">
+        {fmt(submitted, 0)} WETH of buying was submitted. Only {fmt(observed, 0)} WETH reached the pool.
       </p>
     </div>
   );
