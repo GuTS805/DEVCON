@@ -2,6 +2,12 @@
 # Regenerated on demand — nothing here is source.
 .playwright-mcp/
 
+# Ad-hoc screenshots saved straight to the repo root during debugging — this
+# project has no source images that belong at the top level.
+/*.png
+/*.jpg
+/*.jpeg
+
 # dependencies / build output
 node_modules/
 .next/
