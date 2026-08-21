@@ -185,6 +185,8 @@ export default function Page() {
         </p>
       </header>
 
+      <Hero onRun={runComparison} busy={busy} />
+
       {offline && (
         <p className="banner">
           {RPC_IS_LOCAL ? (
@@ -219,7 +221,7 @@ export default function Page() {
         />
       </section>
 
-      <div className="controls">
+      <div className="controls" id="live">
         <button className="btn btn-primary" onClick={runComparison} disabled={busy}>
           {busy && running !== "batch" ? "Running…" : "Run the comparison"}
         </button>
@@ -296,6 +298,87 @@ export default function Page() {
         </p>
       </footer>
     </main>
+  );
+}
+
+/* ---------- hero ---------- */
+
+/// The pool's own arithmetic for a 10 WETH trade against 100 WETH / 1,000,000 MEME,
+/// worked out from x·y=k rather than sampled from a run. It is what this pool always
+/// does at this size, so it draws in before anyone has clicked anything — the page
+/// does not open empty while it waits for a chain round trip.
+const HERO_EXPOSED = [10_000, 9_070.29, 7_561.44, 8_412.9];
+const HERO_SEALED = [10_000, 10_000, 8_264.46, 8_264.46];
+
+function Hero({ onRun, busy }: { onRun: () => void; busy: boolean }) {
+  const narrow = useNarrow();
+  const W = narrow ? 340 : 520;
+  const H = narrow ? 168 : 200;
+  const L = 8;
+  const R = 8;
+  const T = 14;
+  const B = 14;
+
+  const all = [...HERO_EXPOSED, ...HERO_SEALED];
+  const lo = Math.min(...all);
+  const hi = Math.max(...all);
+  const pad = (hi - lo) * 0.18;
+  const top = hi + pad;
+  const bottom = lo - pad;
+
+  const x = (i: number) => L + (i * (W - L - R)) / 3;
+  const y = (v: number) => T + ((top - v) / (top - bottom)) * (H - T - B);
+  const path = (vals: number[]) => vals.map((v, i) => `${i === 0 ? "M" : "L"}${x(i)},${y(v)}`).join(" ");
+
+  const runIt = () => {
+    onRun();
+    document.getElementById("live")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  return (
+    <section className="hero">
+      <div className="hero-copy">
+        <p className="eyebrow">Not a recording — a bot actually did this</p>
+        <h2 className="hero-title">
+          Same trade. Same pool.
+          <br />
+          One version pays a bot <span className="hero-strike">8,093 MEME</span>.
+        </h2>
+        <p className="hero-sub">
+          Route a 10 WETH swap through the public mempool and an independent searcher
+          brackets it before it fills. Seal the same order behind a commit and there is
+          nothing for it to read.
+        </p>
+        <button className="btn btn-primary btn-hero" onClick={runIt} disabled={busy}>
+          {busy ? "Running…" : "Watch it happen live →"}
+        </button>
+      </div>
+
+      <figure className="hero-chart">
+        <p className="eyebrow hero-chart-caption">Pool price during the trade</p>
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          className="hero-svg"
+          role="img"
+          aria-label="Pool price over the trade: the exposed route dips sharply before the fill, the sealed route stays flat until its own fill."
+        >
+          <path d={path(HERO_SEALED)} className="hero-line hero-line-sealed" pathLength={100} />
+          <path d={path(HERO_EXPOSED)} className="hero-line hero-line-exposed" pathLength={100} />
+          {/* Marks the fill — index 2 — not the last point. That is where the theft
+              actually happens: the exposed trade lands at the bottom of the dip. */}
+          <circle cx={x(2)} cy={y(HERO_EXPOSED[2])} r={4.5} className="hero-dot hero-dot-exposed" />
+          <circle cx={x(2)} cy={y(HERO_SEALED[2])} r={4.5} className="hero-dot hero-dot-sealed" />
+        </svg>
+        <div className="hero-tags">
+          <span className="hero-tag hero-tag-exposed">
+            82,816 MEME <em>bot kept 0.97 WETH</em>
+          </span>
+          <span className="hero-tag hero-tag-sealed">
+            90,909 MEME <em>bot kept nothing</em>
+          </span>
+        </div>
+      </figure>
+    </section>
   );
 }
 
